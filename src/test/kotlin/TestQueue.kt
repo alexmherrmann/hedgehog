@@ -1,27 +1,30 @@
+package com.alexmherrmann.util.hedgehog.queue;
+
 import com.alexmherrmann.util.hedgehog.queue.Asyncifier
+import com.alexmherrmann.util.hedgehog.queue.Dealable
 import com.alexmherrmann.util.hedgehog.queue.Squeese
 import io.kotest.assertions.timing.eventually
-import io.kotest.matchers.collections.shouldHaveSize
-import io.kotest.matchers.should
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.runBlocking
 import java.util.*
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.Flow
-import kotlin.collections.ArrayDeque
 import kotlin.test.Test
 import kotlin.test.asserter
 import kotlin.time.Duration.Companion.seconds
 
 class QueueImpl<T> : Squeese<T> {
+	private class DealableImpl<T>(
+		private val obj: T,
+	) : Dealable<T> {
+		override fun markAsDealtWith() = Unit
+		override fun getObj(): T = obj
+	}
 	val que = ArrayBlockingQueue<T>(200)
 	override fun send(obj: T) {
 		que.put(obj)
 	}
 
-	override fun receive(): Optional<T> {
-		return que.poll().toOptional()
-	}
+	override fun receive(): Optional<Dealable<T>> = que.poll().toOptional().map { DealableImpl(it) }
 }
 
 class TestQueue {
@@ -41,32 +44,20 @@ class TestQueue {
 
 	}
 
-	@Test
-	fun asyncWrapTest() {
-		val queue = QueueImpl<Int>()
-		val asyncQueue = Asyncifier.asyncify(queue)
-		asyncQueue.send(1)
-		asyncQueue.send(2)
-		asyncQueue.send(3)
-
-		asserter.assertEquals("got 1", 1, asyncQueue.receive().get())
-		asserter.assertEquals("got 2", 2, asyncQueue.receive().get())
-		asserter.assertEquals("got 3", 3, asyncQueue.receive().get())
-		asserter.assertEquals("got nothing", Optional.empty<Int>(), asyncQueue.receive())
-		asserter.assertEquals("got nothing", Optional.empty<Int>(), asyncQueue.receive())
-	}
 
 	@Test
 	fun asyncTest() {
 		val queue = QueueImpl<Int>()
-		val asyncQueue = Asyncifier.asyncify(queue)
+		val asyncQueue = Asyncifier.asyncifyReceiver(queue)
 		var sum = 0
 		asyncQueue.subscribe { sum += it }
+
+		val asyncSender = Asyncifier.asyncifySender(queue)
 
 
 		val range = 0..<50
 		range.forEach {
-			asyncQueue
+			asyncSender
 				.sendAsync(it)
 				.thenAccept {
 					it.isSuccessful() shouldBe true
